@@ -5,7 +5,7 @@ import type {
 	INodeTypeDescription,
 } from 'n8n-workflow';
 import { NodeConnectionType, NodeOperationError } from 'n8n-workflow';
-import { query, type SDKMessage } from '@anthropic-ai/claude-code';
+import { query, type SDKMessage } from './claudeCodeQuery';
 
 export class ClaudeCode implements INodeType {
 	description: INodeTypeDescription = {
@@ -459,7 +459,7 @@ export class ClaudeCode implements INodeType {
 							if (additionalOptions.debug) {
 								if (content.type === 'text') {
 									this.logger.debug('Assistant response', {
-										text: content.text.substring(0, 100) + '...',
+										text: (content.text ?? '').substring(0, 100) + '...',
 									});
 								} else if (content.type === 'tool_use') {
 									this.logger.debug('Tool use', { toolName: content.name });
