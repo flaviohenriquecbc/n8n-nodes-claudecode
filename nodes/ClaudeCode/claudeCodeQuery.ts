@@ -2,9 +2,14 @@ import { spawn } from 'child_process';
 import * as readline from 'readline';
 import * as path from 'path';
 
-function runCommand(execPath: string, args: string[], cwd: string): Promise<void> {
+function runCommand(
+	execPath: string,
+	args: string[],
+	cwd: string,
+	env?: Record<string, string>,
+): Promise<void> {
 	return new Promise((resolve, reject) => {
-		const proc = spawn(execPath, args, { cwd, env: process.env });
+		const proc = spawn(execPath, args, { cwd, env: { ...process.env, ...env } });
 		proc.on('close', (code) => {
 			if (code === 0) resolve();
 			else reject(new Error(`Command exited with code ${code}: ${args.join(' ')}`));
@@ -34,6 +39,7 @@ export type SDKMessage = {
 type AgentQueryOptions = {
 	marketplaceUrl: string;
 	skillName: string;
+	githubToken?: string;
 	prompt: string;
 	options?: QueryOptions['options'];
 };
@@ -42,14 +48,34 @@ export async function* agentQuery(opts: AgentQueryOptions): AsyncGenerator<SDKMe
 	const pkgDir = path.dirname(require.resolve('@anthropic-ai/claude-code/package.json'));
 	const wrapperPath = path.join(pkgDir, 'cli-wrapper.cjs');
 	const cwd = opts.options?.cwd || process.cwd();
+	const authEnv: Record<string, string> = opts.githubToken
+		? { GH_TOKEN: opts.githubToken, GITHUB_TOKEN: opts.githubToken }
+		: {};
 
-	await runCommand(process.execPath, [wrapperPath, 'plugin', 'marketplace', 'add', opts.marketplaceUrl], cwd);
-	await runCommand(process.execPath, [wrapperPath, 'plugin', 'install', opts.skillName], cwd);
+	await runCommand(
+		process.execPath,
+		[wrapperPath, 'plugin', 'marketplace', 'add', opts.marketplaceUrl],
+		cwd,
+		authEnv,
+	);
+	await runCommand(
+		process.execPath,
+		[wrapperPath, 'plugin', 'install', opts.skillName],
+		cwd,
+		authEnv,
+	);
 
 	const agentName = opts.skillName.split('@')[0];
 	const o = opts.options ?? {};
 
-	const args: string[] = ['--agent', agentName, '--output-format', 'stream-json', '-p', opts.prompt];
+	const args: string[] = [
+		'--agent',
+		agentName,
+		'--output-format',
+		'stream-json',
+		'-p',
+		opts.prompt,
+	];
 	if (o.model) args.push('--model', o.model);
 	if (o.maxTurns) args.push('--max-turns', String(o.maxTurns));
 	if (o.systemPrompt) args.push('--system-prompt', o.systemPrompt);

@@ -440,8 +440,15 @@ export class ClaudeCode implements INodeType {
 							{ itemIndex },
 						);
 					}
+					const githubToken = (pluginCredentials.githubToken as string) || undefined;
 					const skillName = this.getNodeParameter('skillName', itemIndex) as string;
-					messageSource = agentQuery({ marketplaceUrl, skillName, prompt, options: queryOptions.options });
+					messageSource = agentQuery({
+						marketplaceUrl,
+						skillName,
+						githubToken,
+						prompt,
+						options: queryOptions.options,
+					});
 				} else {
 					messageSource = query(queryOptions);
 				}

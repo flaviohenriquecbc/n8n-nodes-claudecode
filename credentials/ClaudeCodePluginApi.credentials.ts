@@ -13,5 +13,15 @@ export class ClaudeCodePluginApi implements ICredentialType {
 			placeholder: 'https://github.com/your-org/your-plugin-repo',
 			description: 'URL of the Claude Code plugin marketplace repository',
 		},
+		{
+			displayName: 'GitHub Token',
+			name: 'githubToken',
+			type: 'string',
+			typeOptions: { password: true },
+			default: '',
+			placeholder: 'ghp_...',
+			description:
+				'Personal access token (or fine-grained token) with read access to the marketplace repository. Required for private repos.',
+		},
 	];
 }
