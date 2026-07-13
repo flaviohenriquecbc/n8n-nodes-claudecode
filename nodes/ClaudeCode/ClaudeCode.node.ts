@@ -62,6 +62,20 @@ export class ClaudeCode implements INodeType {
 				default: 'query',
 			},
 			{
+				displayName: 'Marketplace URL',
+				name: 'marketplaceUrl',
+				type: 'string',
+				default: '',
+				description: 'URL of the Claude Code plugin marketplace repository',
+				placeholder: 'https://github.com/your-org/your-plugin-repo',
+				required: true,
+				displayOptions: {
+					show: {
+						operation: ['agent'],
+					},
+				},
+			},
+			{
 				displayName: 'Skill',
 				name: 'skillName',
 				type: 'string',
@@ -431,16 +445,18 @@ export class ClaudeCode implements INodeType {
 				// Pick the right generator based on operation
 				let messageSource;
 				if (operation === 'agent') {
-					const pluginCredentials = await this.getCredentials('claudeCodePluginApi');
-					const marketplaceUrl = pluginCredentials.marketplaceUrl as string;
+					const marketplaceUrl = this.getNodeParameter('marketplaceUrl', itemIndex) as string;
 					if (!marketplaceUrl) {
 						throw new NodeOperationError(
 							this.getNode(),
-							'Marketplace URL is not configured. Add a "Claude Code Plugin Marketplace" credential to this node.',
+							'Marketplace URL is required for the Agent operation.',
 							{ itemIndex },
 						);
 					}
-					const githubToken = (pluginCredentials.githubToken as string) || undefined;
+					const pluginCredentials = await this.getCredentials('claudeCodePluginApi').catch(
+						() => null,
+					);
+					const githubToken = (pluginCredentials?.githubToken as string) || undefined;
 					const skillName = this.getNodeParameter('skillName', itemIndex) as string;
 					messageSource = agentQuery({
 						marketplaceUrl,
