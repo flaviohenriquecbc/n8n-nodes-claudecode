@@ -5,7 +5,7 @@ import type {
 	INodeTypeDescription,
 } from 'n8n-workflow';
 import { NodeConnectionType, NodeOperationError } from 'n8n-workflow';
-import { query, type SDKMessage } from './claudeCodeQuery';
+import { query, agentQuery, type SDKMessage } from './claudeCodeQuery';
 
 export class ClaudeCode implements INodeType {
 	description: INodeTypeDescription = {
@@ -20,6 +20,17 @@ export class ClaudeCode implements INodeType {
 		defaults: {
 			name: 'Claude Code',
 		},
+		credentials: [
+			{
+				name: 'claudeCodePluginApi',
+				required: false,
+				displayOptions: {
+					show: {
+						operation: ['agent'],
+					},
+				},
+			},
+		],
 		inputs: [{ type: NodeConnectionType.Main }],
 		outputs: [{ type: NodeConnectionType.Main }],
 		properties: [
@@ -41,8 +52,29 @@ export class ClaudeCode implements INodeType {
 						description: 'Continue a previous conversation (requires prior query)',
 						action: 'Continue a previous conversation requires prior query',
 					},
+					{
+						name: 'Agent',
+						value: 'agent',
+						description: 'Install and run a Claude Code skill agent from a plugin marketplace',
+						action: 'Start a new conversation with claude code using agents',
+					},
 				],
 				default: 'query',
+			},
+			{
+				displayName: 'Skill',
+				name: 'skillName',
+				type: 'string',
+				default: '',
+				description:
+					'Skill to install and run, in the format name@source (e.g. skills-namer@market-place-name)',
+				placeholder: 'skills-namer@market-place-name',
+				required: true,
+				displayOptions: {
+					show: {
+						operation: ['agent'],
+					},
+				},
 			},
 			{
 				displayName: 'Prompt',
@@ -396,8 +428,26 @@ export class ClaudeCode implements INodeType {
 				const messages: SDKMessage[] = [];
 				const startTime = Date.now();
 
+				// Pick the right generator based on operation
+				let messageSource;
+				if (operation === 'agent') {
+					const pluginCredentials = await this.getCredentials('claudeCodePluginApi');
+					const marketplaceUrl = pluginCredentials.marketplaceUrl as string;
+					if (!marketplaceUrl) {
+						throw new NodeOperationError(
+							this.getNode(),
+							'Marketplace URL is not configured. Add a "Claude Code Plugin Marketplace" credential to this node.',
+							{ itemIndex },
+						);
+					}
+					const skillName = this.getNodeParameter('skillName', itemIndex) as string;
+					messageSource = agentQuery({ marketplaceUrl, skillName, prompt, options: queryOptions.options });
+				} else {
+					messageSource = query(queryOptions);
+				}
+
 				try {
-					for await (const message of query(queryOptions)) {
+					for await (const message of messageSource) {
 						messages.push(message);
 
 						if (additionalOptions.debug) {
