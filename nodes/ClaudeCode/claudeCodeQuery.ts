@@ -122,6 +122,7 @@ export async function* agentQuery(opts: AgentQueryOptions): AsyncGenerator<SDKMe
 	const procEnv: Record<string, string> = {
 		...(process.env as Record<string, string>),
 		HOME: writableHome,
+		SHELL: process.env.SHELL || '/bin/sh',
 	};
 	if (opts.anthropicApiKey) procEnv.ANTHROPIC_API_KEY = opts.anthropicApiKey;
 
