@@ -31,8 +31,7 @@ export class ClaudeCode implements INodeType {
 				},
 			},
 			{
-				// eslint-disable-next-line n8n-nodes-base/node-class-description-credentials-name-unsuffixed
-				name: 'httpBearerAuth',
+				name: 'githubApi',
 				required: false,
 				displayOptions: {
 					show: {
@@ -465,8 +464,8 @@ export class ClaudeCode implements INodeType {
 					}
 					const apiCredentials = await this.getCredentials('anthropicApi').catch(() => null);
 					const anthropicApiKey = (apiCredentials?.apiKey as string) || undefined;
-					const pluginCredentials = await this.getCredentials('httpBearerAuth').catch(() => null);
-					const githubToken = (pluginCredentials?.token as string) || undefined;
+					const pluginCredentials = await this.getCredentials('githubApi').catch(() => null);
+					const githubToken = (pluginCredentials?.accessToken as string) || undefined;
 					const skillName = this.getNodeParameter('skillName', itemIndex) as string;
 					messageSource = agentQuery({
 						marketplaceUrl,
