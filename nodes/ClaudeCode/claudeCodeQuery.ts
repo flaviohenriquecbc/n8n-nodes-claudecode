@@ -119,10 +119,23 @@ export async function* agentQuery(opts: AgentQueryOptions): AsyncGenerator<SDKMe
 	if (o.allowedTools?.length) args.push('--allowedTools', o.allowedTools.join(','));
 	if (o.disallowedTools?.length) args.push('--disallowedTools', o.disallowedTools.join(','));
 
+	// Find a usable POSIX shell — the claude CLI validates this binary exists and is executable
+	const shellPath =
+		process.env.SHELL ||
+		['/bin/bash', '/usr/bin/bash', '/bin/sh', '/usr/bin/sh', '/usr/local/bin/bash'].find((p) => {
+			try {
+				fs.accessSync(p, fs.constants.X_OK);
+				return true;
+			} catch {
+				return false;
+			}
+		}) ||
+		'/bin/sh';
+
 	const procEnv: Record<string, string> = {
 		...(process.env as Record<string, string>),
 		HOME: writableHome,
-		SHELL: process.env.SHELL || '/bin/sh',
+		SHELL: shellPath,
 	};
 	if (opts.anthropicApiKey) procEnv.ANTHROPIC_API_KEY = opts.anthropicApiKey;
 
