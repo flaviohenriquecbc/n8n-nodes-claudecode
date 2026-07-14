@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as readline from 'readline';
 import * as path from 'path';
+import * as os from 'os';
 
 function runCommand(
 	execPath: string,
@@ -24,6 +25,50 @@ function runCommand(
 		});
 		proc.on('error', reject);
 	});
+}
+
+const GH_VERSION = '2.74.0';
+
+// Returns a directory containing the gh binary, downloading it to /tmp if needed.
+async function ensureGhCli(writableHome: string, sh: string): Promise<string> {
+	const ghDir = path.join(writableHome, 'gh-cli');
+	const ghBin = path.join(ghDir, 'gh');
+	try {
+		fs.accessSync(ghBin, fs.constants.X_OK);
+		return ghDir;
+	} catch {
+		/* not cached */
+	}
+
+	for (const p of ['/usr/bin/gh', '/usr/local/bin/gh', '/bin/gh']) {
+		try {
+			fs.accessSync(p, fs.constants.X_OK);
+			return path.dirname(p);
+		} catch {
+			/* skip */
+		}
+	}
+
+	const arch = os.arch() === 'arm64' ? 'arm64' : 'amd64';
+	const tarName = `gh_${GH_VERSION}_linux_${arch}.tar.gz`;
+	const url = `https://github.com/cli/cli/releases/download/v${GH_VERSION}/${tarName}`;
+	fs.mkdirSync(ghDir, { recursive: true });
+	await new Promise<void>((resolve, reject) => {
+		const proc = spawn(
+			sh,
+			[
+				'-c',
+				`curl -fsSL "${url}" | tar xz -C "${ghDir}" --strip-components=2 "gh_${GH_VERSION}_linux_${arch}/bin/gh"`,
+			],
+			{ env: process.env as Record<string, string> },
+		);
+		proc.on('close', (code) =>
+			code === 0 ? resolve() : reject(new Error(`gh download failed: exit ${code}`)),
+		);
+		proc.on('error', reject);
+	});
+	fs.chmodSync(ghBin, 0o755);
+	return ghDir;
 }
 
 export type SDKMessage = {
@@ -159,6 +204,22 @@ export async function* agentQuery(opts: AgentQueryOptions): AsyncGenerator<SDKMe
 		procEnv.SHELL = shellPath;
 	}
 	if (opts.anthropicApiKey) procEnv.ANTHROPIC_API_KEY = opts.anthropicApiKey;
+	// Forward GitHub token so the gh CLI (used by skills) authenticates automatically.
+	// GH_TOKEN is the canonical env var; GITHUB_TOKEN is a fallback accepted by gh.
+	if (opts.githubToken) {
+		procEnv.GH_TOKEN = opts.githubToken;
+		procEnv.GITHUB_TOKEN = opts.githubToken;
+	}
+
+	// Ensure the gh CLI binary is available (download to /tmp if missing).
+	try {
+		const ghBinDir = await ensureGhCli(writableHome, shellPath || '/bin/sh');
+		const existingPath =
+			procEnv.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
+		procEnv.PATH = `${ghBinDir}:${existingPath}`;
+	} catch {
+		/* non-fatal: skill may not need gh */
+	}
 
 	const proc = spawn(process.execPath, [wrapperPath, ...args], {
 		cwd,
