@@ -465,7 +465,13 @@ export class ClaudeCode implements INodeType {
 					}
 					const apiCredentials = await this.getCredentials('anthropicApi').catch(() => null);
 					const anthropicApiKey = (apiCredentials?.apiKey as string) || undefined;
-					const pluginCredentials = await this.getCredentials('httpBearerAuth').catch(() => null);
+					const pluginCredentials = await this.getCredentials('httpBearerAuth').catch((e) => {
+						this.logger.debug(`[ClaudeCode] httpBearerAuth getCredentials error: ${e?.message}`);
+						return null;
+					});
+					this.logger.debug(
+						`[ClaudeCode] httpBearerAuth keys: ${JSON.stringify(Object.keys(pluginCredentials ?? {}))}`,
+					);
 					const githubToken = (pluginCredentials?.token as string) || undefined;
 					const skillName = this.getNodeParameter('skillName', itemIndex) as string;
 					messageSource = agentQuery({
