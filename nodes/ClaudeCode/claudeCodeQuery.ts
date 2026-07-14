@@ -10,12 +10,30 @@ function runCommand(
 ): Promise<void> {
 	return new Promise((resolve, reject) => {
 		const proc = spawn(execPath, args, { cwd, env: { ...process.env, ...env } });
+		const stderrChunks: Buffer[] = [];
+		proc.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
 		proc.on('close', (code) => {
-			if (code === 0) resolve();
-			else reject(new Error(`Command exited with code ${code}: ${args.join(' ')}`));
+			if (code === 0) {
+				resolve();
+			} else {
+				const stderr = Buffer.concat(stderrChunks).toString().trim();
+				const detail = stderr ? `: ${stderr}` : '';
+				reject(new Error(`Command exited with code ${code}${detail}`));
+			}
 		});
 		proc.on('error', reject);
 	});
+}
+
+function injectTokenIntoUrl(url: string, token: string): string {
+	try {
+		const parsed = new URL(url);
+		parsed.username = 'x-access-token';
+		parsed.password = token;
+		return parsed.toString();
+	} catch {
+		return url;
+	}
 }
 
 export type SDKMessage = {
@@ -52,9 +70,14 @@ export async function* agentQuery(opts: AgentQueryOptions): AsyncGenerator<SDKMe
 		? { GH_TOKEN: opts.githubToken, GITHUB_TOKEN: opts.githubToken }
 		: {};
 
+	// Embed token directly in URL so git clone can authenticate against private repos
+	const marketplaceUrl = opts.githubToken
+		? injectTokenIntoUrl(opts.marketplaceUrl, opts.githubToken)
+		: opts.marketplaceUrl;
+
 	await runCommand(
 		process.execPath,
-		[wrapperPath, 'plugin', 'marketplace', 'add', opts.marketplaceUrl],
+		[wrapperPath, 'plugin', 'marketplace', 'add', marketplaceUrl],
 		cwd,
 		authEnv,
 	);
