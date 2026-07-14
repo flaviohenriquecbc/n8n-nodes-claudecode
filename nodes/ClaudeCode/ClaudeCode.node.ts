@@ -22,7 +22,7 @@ export class ClaudeCode implements INodeType {
 		},
 		credentials: [
 			{
-				name: 'claudeCodeApi',
+				name: 'anthropicApi',
 				required: false,
 				displayOptions: {
 					show: {
@@ -31,7 +31,7 @@ export class ClaudeCode implements INodeType {
 				},
 			},
 			{
-				name: 'claudeCodePluginApi',
+				name: 'githubApi',
 				required: false,
 				displayOptions: {
 					show: {
@@ -462,12 +462,10 @@ export class ClaudeCode implements INodeType {
 							{ itemIndex },
 						);
 					}
-					const apiCredentials = await this.getCredentials('claudeCodeApi').catch(() => null);
+					const apiCredentials = await this.getCredentials('anthropicApi').catch(() => null);
 					const anthropicApiKey = (apiCredentials?.apiKey as string) || undefined;
-					const pluginCredentials = await this.getCredentials('claudeCodePluginApi').catch(
-						() => null,
-					);
-					const githubToken = (pluginCredentials?.githubToken as string) || undefined;
+					const pluginCredentials = await this.getCredentials('githubApi').catch(() => null);
+					const githubToken = (pluginCredentials?.accessToken as string) || undefined;
 					const skillName = this.getNodeParameter('skillName', itemIndex) as string;
 					messageSource = agentQuery({
 						marketplaceUrl,
