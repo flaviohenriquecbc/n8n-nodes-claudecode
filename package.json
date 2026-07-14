@@ -1,6 +1,6 @@
 {
   "name": "@flaviohenriquecbc/n8n-nodes-claudecode",
-  "version": "3.1.8",
+  "version": "3.1.9",
   "description": "n8n node for Claude Code SDK integration with MCP support",
   "keywords": [
     "n8n-community-node-package",
@@ -45,6 +45,7 @@
   "n8n": {
     "n8nNodesApiVersion": 1,
     "credentials": [
+      "dist/credentials/ClaudeCodeApi.credentials.js",
       "dist/credentials/ClaudeCodePluginApi.credentials.js"
     ],
     "nodes": [

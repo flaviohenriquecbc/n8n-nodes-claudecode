@@ -22,6 +22,15 @@ export class ClaudeCode implements INodeType {
 		},
 		credentials: [
 			{
+				name: 'claudeCodeApi',
+				required: false,
+				displayOptions: {
+					show: {
+						operation: ['agent'],
+					},
+				},
+			},
+			{
 				name: 'claudeCodePluginApi',
 				required: false,
 				displayOptions: {
@@ -453,6 +462,8 @@ export class ClaudeCode implements INodeType {
 							{ itemIndex },
 						);
 					}
+					const apiCredentials = await this.getCredentials('claudeCodeApi').catch(() => null);
+					const anthropicApiKey = (apiCredentials?.apiKey as string) || undefined;
 					const pluginCredentials = await this.getCredentials('claudeCodePluginApi').catch(
 						() => null,
 					);
@@ -462,6 +473,7 @@ export class ClaudeCode implements INodeType {
 						marketplaceUrl,
 						skillName,
 						githubToken,
+						anthropicApiKey,
 						prompt,
 						options: queryOptions.options,
 					});

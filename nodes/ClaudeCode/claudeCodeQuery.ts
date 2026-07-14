@@ -48,6 +48,7 @@ type AgentQueryOptions = {
 	marketplaceUrl: string;
 	skillName: string;
 	githubToken?: string;
+	anthropicApiKey?: string;
 	prompt: string;
 	options?: QueryOptions['options'];
 };
@@ -118,9 +119,15 @@ export async function* agentQuery(opts: AgentQueryOptions): AsyncGenerator<SDKMe
 	if (o.allowedTools?.length) args.push('--allowedTools', o.allowedTools.join(','));
 	if (o.disallowedTools?.length) args.push('--disallowedTools', o.disallowedTools.join(','));
 
+	const procEnv: Record<string, string> = {
+		...(process.env as Record<string, string>),
+		HOME: writableHome,
+	};
+	if (opts.anthropicApiKey) procEnv.ANTHROPIC_API_KEY = opts.anthropicApiKey;
+
 	const proc = spawn(process.execPath, [wrapperPath, ...args], {
 		cwd,
-		env: { ...process.env, HOME: writableHome },
+		env: procEnv,
 	});
 
 	const stderrChunks: Buffer[] = [];
