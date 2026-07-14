@@ -1,6 +1,6 @@
 {
   "name": "@flaviohenriquecbc/n8n-nodes-claudecode",
-  "version": "3.1.11",
+  "version": "3.1.12",
   "description": "n8n node for Claude Code SDK integration with MCP support",
   "keywords": [
     "n8n-community-node-package",

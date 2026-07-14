@@ -119,24 +119,37 @@ export async function* agentQuery(opts: AgentQueryOptions): AsyncGenerator<SDKMe
 	if (o.allowedTools?.length) args.push('--allowedTools', o.allowedTools.join(','));
 	if (o.disallowedTools?.length) args.push('--disallowedTools', o.disallowedTools.join(','));
 
-	// Find a usable POSIX shell — the claude CLI validates this binary exists and is executable
+	// The claude CLI only accepts bash or zsh (not sh). It checks CLAUDE_CODE_SHELL first,
+	// then SHELL (only if it contains "bash" or "zsh"), then probes common paths.
+	const existingShell =
+		process.env.CLAUDE_CODE_SHELL ||
+		(process.env.SHELL?.match(/bash|zsh/) ? process.env.SHELL : undefined);
 	const shellPath =
-		process.env.SHELL ||
-		['/bin/bash', '/usr/bin/bash', '/bin/sh', '/usr/bin/sh', '/usr/local/bin/bash'].find((p) => {
+		existingShell ||
+		[
+			'/bin/bash',
+			'/usr/bin/bash',
+			'/usr/local/bin/bash',
+			'/bin/zsh',
+			'/usr/bin/zsh',
+			'/usr/local/bin/zsh',
+		].find((p) => {
 			try {
 				fs.accessSync(p, fs.constants.X_OK);
 				return true;
 			} catch {
 				return false;
 			}
-		}) ||
-		'/bin/sh';
+		});
 
 	const procEnv: Record<string, string> = {
 		...(process.env as Record<string, string>),
 		HOME: writableHome,
-		SHELL: shellPath,
 	};
+	if (shellPath) {
+		procEnv.CLAUDE_CODE_SHELL = shellPath;
+		procEnv.SHELL = shellPath;
+	}
 	if (opts.anthropicApiKey) procEnv.ANTHROPIC_API_KEY = opts.anthropicApiKey;
 
 	const proc = spawn(process.execPath, [wrapperPath, ...args], {
