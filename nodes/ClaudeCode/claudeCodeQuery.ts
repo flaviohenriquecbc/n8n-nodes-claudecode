@@ -121,26 +121,34 @@ export async function* agentQuery(opts: AgentQueryOptions): AsyncGenerator<SDKMe
 
 	// The claude CLI only accepts bash or zsh (not sh). It checks CLAUDE_CODE_SHELL first,
 	// then SHELL (only if it contains "bash" or "zsh"), then probes common paths.
+	// In containers without bash/zsh (e.g. Alpine n8n), we write a /tmp/bash shim that
+	// delegates to /bin/sh — the CLI only checks that the path string contains "bash".
 	const existingShell =
 		process.env.CLAUDE_CODE_SHELL ||
 		(process.env.SHELL?.match(/bash|zsh/) ? process.env.SHELL : undefined);
-	const shellPath =
-		existingShell ||
-		[
-			'/bin/bash',
-			'/usr/bin/bash',
-			'/usr/local/bin/bash',
-			'/bin/zsh',
-			'/usr/bin/zsh',
-			'/usr/local/bin/zsh',
-		].find((p) => {
-			try {
-				fs.accessSync(p, fs.constants.X_OK);
-				return true;
-			} catch {
-				return false;
-			}
-		});
+	const nativeBash = [
+		'/bin/bash',
+		'/usr/bin/bash',
+		'/usr/local/bin/bash',
+		'/bin/zsh',
+		'/usr/bin/zsh',
+		'/usr/local/bin/zsh',
+	].find((p) => {
+		try {
+			fs.accessSync(p, fs.constants.X_OK);
+			return true;
+		} catch {
+			return false;
+		}
+	});
+	let shellPath = existingShell || nativeBash;
+	if (!shellPath) {
+		// No bash/zsh found — create a shim at /tmp/bash that wraps /bin/sh.
+		// The claude CLI accepts any path containing "bash"; /bin/sh handles the actual execution.
+		const shimPath = path.join(writableHome, 'bash');
+		fs.writeFileSync(shimPath, '#!/bin/sh\nexec /bin/sh "$@"\n', { encoding: 'utf8', mode: 0o755 });
+		shellPath = shimPath;
+	}
 
 	const procEnv: Record<string, string> = {
 		...(process.env as Record<string, string>),
