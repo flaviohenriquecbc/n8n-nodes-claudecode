@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import * as fs from 'fs';
 import * as readline from 'readline';
 import * as path from 'path';
 
@@ -23,17 +24,6 @@ function runCommand(
 		});
 		proc.on('error', reject);
 	});
-}
-
-function injectTokenIntoUrl(url: string, token: string): string {
-	try {
-		const parsed = new URL(url);
-		parsed.username = 'x-access-token';
-		parsed.password = token;
-		return parsed.toString();
-	} catch {
-		return url;
-	}
 }
 
 export type SDKMessage = {
@@ -66,60 +56,93 @@ export async function* agentQuery(opts: AgentQueryOptions): AsyncGenerator<SDKMe
 	const pkgDir = path.dirname(require.resolve('@anthropic-ai/claude-code/package.json'));
 	const wrapperPath = path.join(pkgDir, 'cli-wrapper.cjs');
 	const cwd = opts.options?.cwd || process.cwd();
-	const authEnv: Record<string, string> = opts.githubToken
-		? { GH_TOKEN: opts.githubToken, GITHUB_TOKEN: opts.githubToken }
-		: {};
+	// Use /tmp as HOME so the Claude CLI can write ~/.claude in read-only container environments
+	const writableHome = '/tmp';
 
-	// Embed token directly in URL so git clone can authenticate against private repos
-	const marketplaceUrl = opts.githubToken
-		? injectTokenIntoUrl(opts.marketplaceUrl, opts.githubToken)
-		: opts.marketplaceUrl;
+	// Write a .gitconfig in the writable home so git rewrites GitHub URLs to
+	// include the token. The claude CLI sees the clean URL; git handles auth.
+	if (opts.githubToken) {
+		const gitconfigPath = path.join(writableHome, '.gitconfig');
+		const gitconfigContent = `[url "https://x-access-token:${opts.githubToken}@github.com/"]\n\tinsteadOf = https://github.com/\n`;
+		fs.writeFileSync(gitconfigPath, gitconfigContent, { encoding: 'utf8' });
+	}
+
+	const baseEnv: Record<string, string> = { HOME: writableHome };
 
 	await runCommand(
 		process.execPath,
-		[wrapperPath, 'plugin', 'marketplace', 'add', marketplaceUrl],
+		[wrapperPath, 'plugin', 'marketplace', 'add', opts.marketplaceUrl],
 		cwd,
-		authEnv,
+		baseEnv,
 	);
 	await runCommand(
 		process.execPath,
 		[wrapperPath, 'plugin', 'install', opts.skillName],
 		cwd,
-		authEnv,
+		baseEnv,
 	);
 
-	const agentName = opts.skillName.split('@')[0];
+	const skillName = opts.skillName.split('@')[0];
 	const o = opts.options ?? {};
 
-	const args: string[] = [
-		'--agent',
-		agentName,
-		'--output-format',
-		'stream-json',
-		'-p',
-		opts.prompt,
-	];
+	// Skills are SKILL.md definitions, not --agent processes.
+	// Find the installed SKILL.md and use its content as the system prompt.
+	const installedPluginsPath = path.join(
+		writableHome,
+		'.claude',
+		'plugins',
+		'installed_plugins.json',
+	);
+	let skillSystemPrompt = o.systemPrompt || '';
+	try {
+		const installedPlugins = JSON.parse(fs.readFileSync(installedPluginsPath, 'utf8'));
+		const entries: Array<{ installPath: string }> = installedPlugins[opts.skillName] || [];
+		const installPath = entries[0]?.installPath;
+		if (installPath) {
+			const skillMdPath = path.join(installPath, 'skills', skillName, 'SKILL.md');
+			if (fs.existsSync(skillMdPath)) {
+				const raw = fs.readFileSync(skillMdPath, 'utf8');
+				// Strip YAML frontmatter (--- ... ---)
+				skillSystemPrompt = raw.replace(/^---[\s\S]*?---\n?/, '').trim();
+			}
+		}
+	} catch {
+		// If we can't read the skill, fall back to running without a system prompt
+	}
+
+	const args: string[] = ['--output-format', 'stream-json', '--verbose', '-p', opts.prompt];
 	if (o.model) args.push('--model', o.model);
 	if (o.maxTurns) args.push('--max-turns', String(o.maxTurns));
-	if (o.systemPrompt) args.push('--system-prompt', o.systemPrompt);
+	if (skillSystemPrompt) args.push('--system-prompt', skillSystemPrompt);
 	if (o.permissionMode) args.push('--permission-mode', o.permissionMode);
 	if (o.allowedTools?.length) args.push('--allowedTools', o.allowedTools.join(','));
 	if (o.disallowedTools?.length) args.push('--disallowedTools', o.disallowedTools.join(','));
 
 	const proc = spawn(process.execPath, [wrapperPath, ...args], {
 		cwd,
-		env: process.env,
+		env: { ...process.env, HOME: writableHome },
 	});
+
+	const stderrChunks: Buffer[] = [];
+	const nonJsonLines: string[] = [];
+	proc.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
 
 	const rl = readline.createInterface({ input: proc.stdout });
 	const queue: SDKMessage[] = [];
 	let done = false;
+	let exitCode: number | null = null;
+	let messageCount = 0;
 	let resolver: ((v: SDKMessage | null) => void) | null = null;
+
+	proc.on('close', (code) => {
+		exitCode = code;
+	});
 
 	rl.on('line', (line) => {
 		if (!line.trim()) return;
 		try {
 			const msg = JSON.parse(line) as SDKMessage;
+			messageCount++;
 			if (resolver) {
 				const r = resolver;
 				resolver = null;
@@ -128,7 +151,7 @@ export async function* agentQuery(opts: AgentQueryOptions): AsyncGenerator<SDKMe
 				queue.push(msg);
 			}
 		} catch {
-			/* skip non-JSON lines */
+			nonJsonLines.push(line.substring(0, 200));
 		}
 	});
 
@@ -155,6 +178,19 @@ export async function* agentQuery(opts: AgentQueryOptions): AsyncGenerator<SDKMe
 	}
 
 	await new Promise<void>((r) => proc.on('close', r));
+
+	if (messageCount === 0) {
+		const stderr = Buffer.concat(stderrChunks).toString().trim();
+		const detail = [
+			`exit code: ${exitCode}`,
+			stderr ? `stderr: ${stderr}` : '',
+			nonJsonLines.length ? `stdout (non-JSON): ${nonJsonLines.join(' | ')}` : '',
+			`args: ${args.join(' ').substring(0, 300)}`,
+		]
+			.filter(Boolean)
+			.join('\n');
+		throw new Error(`Claude agent produced no output.\n${detail}`);
+	}
 }
 
 type QueryOptions = {
@@ -178,7 +214,7 @@ export async function* query(opts: QueryOptions): AsyncGenerator<SDKMessage> {
 	const wrapperPath = path.join(pkgDir, 'cli-wrapper.cjs');
 	const o = opts.options ?? {};
 
-	const args: string[] = ['--output-format', 'stream-json', '--print'];
+	const args: string[] = ['--output-format', 'stream-json', '--verbose', '-p', opts.prompt];
 	if (o.model) args.push('--model', o.model);
 	if (o.maxTurns) args.push('--max-turns', String(o.maxTurns));
 	if (o.systemPrompt) args.push('--system-prompt', o.systemPrompt);
@@ -186,7 +222,6 @@ export async function* query(opts: QueryOptions): AsyncGenerator<SDKMessage> {
 	if (o.permissionMode) args.push('--permission-mode', o.permissionMode);
 	if (o.allowedTools?.length) args.push('--allowedTools', o.allowedTools.join(','));
 	if (o.disallowedTools?.length) args.push('--disallowedTools', o.disallowedTools.join(','));
-	args.push(opts.prompt);
 
 	const proc = spawn(process.execPath, [wrapperPath, ...args], {
 		cwd: o.cwd || process.cwd(),
